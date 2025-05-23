@@ -9,6 +9,22 @@ to query it via stdin/stdout.
 
 **cmd/host/main.go**
 
+```sh
+$ go run ./cmd/host -p "./cmd/plugin"
+PLUG: received request: shared.Request{Question:"u okay?"}
+PLUG: received request: shared.Request{Question:"how is it?"}
+2025/05/23 19:44:03 ERR: 3: unknown method: wrongmethod
+2025/05/23 19:44:03 RESP: 2: shared.Response{Answer:"this is fine"}
+2025/05/23 19:44:04 RESP: 1: shared.Response{Answer:"yeah, I'm fine!"}
+2025/05/23 19:44:04 DONE
+```
+
+If the plugin is hosted on GitHub you can run it as:
+
+```sh
+go run ./cmd/host -p github.com/your/plugin@latest
+```
+
 ```go
 package main
 
@@ -28,9 +44,9 @@ import (
 
 func main() {
 	fPlugin := flag.String(
-        "p", "plugin",
-        "path to executable file, a local Go package or a remote Go module",
-    )
+		"p", "plugin",
+		"path to executable file, a local Go package or a remote Go module",
+	)
 	flag.Parse()
 	if *fPlugin == "" {
 		log.Print("please provide a plugin with -p")
@@ -38,7 +54,7 @@ func main() {
 	}
 	h := plugger.NewHost()
 	ctx := context.Background()
-	go func() {
+	go func() { // Run the plugin in the background.
 		if err := h.RunPlugin(ctx, *fPlugin, os.Stderr); err != nil {
 			if !errors.Is(err, io.EOF) {
 				log.Fatal(err)
@@ -64,7 +80,7 @@ func main() {
 	}()
 	wg.Wait()
 
-	if err := h.Close(); err != nil {
+	if err := h.Close(); err != nil { // Close stdin pipe shutting the plugin down.
 		log.Print("ERR: closing plugin: ", err)
 	}
 	log.Println("DONE")
