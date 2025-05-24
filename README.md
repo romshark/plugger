@@ -142,3 +142,99 @@ type Response struct {
 	Answer string `json:"answer"`
 }
 ```
+
+## Envelope JSON Schema
+
+Plugger supports any executable that implements the following
+JSON schema over stdin/stdout:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/plugger/envelope.schema.json",
+  "title": "Plugger RPC Envelope",
+  "description": "Message wrapper exchanged between host and plugin.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "description": "Unique request identifier (hexadecimal number).",
+      "pattern": "^[0-9a-fA-F]+$"
+    },
+    "anyJson": {
+      "description": "Arbitrary JSON payload.",
+      "type": [
+        "object",
+        "array",
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "id",
+        "method"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data": {
+          "$ref": "#/$defs/anyJson"
+        },
+        "err": false
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "err": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/anyJson"
+        },
+        "method": false
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "err"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "data"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
