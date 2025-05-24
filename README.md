@@ -1,3 +1,13 @@
+<a href="https://pkg.go.dev/github.com/romshark/plugger">
+    <img src="https://godoc.org/github.com/romshark/plugger?status.svg" alt="GoDoc">
+</a>
+<a href="https://goreportcard.com/report/github.com/romshark/plugger">
+    <img src="https://goreportcard.com/badge/github.com/romshark/plugger" alt="GoReportCard">
+</a>
+<a href='https://coveralls.io/github/romshark/plugger?branch=main'>
+    <img src='https://coveralls.io/repos/github/romshark/plugger/badge.svg?branch=main&service=github' alt='Coverage Status' />
+</a>
+
 # plugger (EXPERIMENTAL)
 
 This is an experimental Go package for creating async JSON via OS pipe based plugins.
