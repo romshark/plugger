@@ -43,11 +43,15 @@ func NewHost() *Host {
 	return h
 }
 
+var ErrAlreadyRunning = errors.New("plugin already running")
+
 // RunPlugin spawns / go-runs / executes a plugin binary or Go module.
 func (h *Host) RunPlugin(
 	ctx context.Context, plugin string, pluginStderr io.Writer,
 ) error {
-	defer h.wgRun.Done()
+	if h.running.Load() {
+		return ErrAlreadyRunning
+	}
 	cmd, err := spawn(plugin)
 	if err != nil {
 		return err
@@ -74,6 +78,7 @@ func (h *Host) RunPlugin(
 	h.cmd = cmd
 	h.closer = stdin
 	h.running.Store(true)
+	h.wgRun.Done()
 	return h.run(ctx)
 }
 
@@ -171,9 +176,10 @@ func (h *Host) run(ctx context.Context) error {
 }
 
 type Plugin struct {
-	enc       *json.Encoder
-	dec       *json.Decoder
-	endpoints map[string]func(context.Context, json.RawMessage) (any, error)
+	enc          *json.Encoder
+	dec          *json.Decoder
+	endpoints    map[string]func(context.Context, json.RawMessage) (any, error)
+	wgDispatcher sync.WaitGroup
 }
 
 // NewPlugin binds to the process’ own stdin/stdout.
@@ -214,12 +220,14 @@ func (p *Plugin) Run(ctx context.Context) int {
 			// stdin closed – clean exit
 			return 0
 		}
-		go p.dispatch(ev)
+		go p.dispatch(ctx, ev)
 	}
 }
 
-func (p *Plugin) dispatch(ev envelope) {
-	ctx := context.Background()
+func (p *Plugin) dispatch(ctx context.Context, ev envelope) {
+	p.wgDispatcher.Add(1)
+	defer p.wgDispatcher.Done()
+
 	fn := p.endpoints[ev.Method]
 
 	var out envelope
@@ -252,7 +260,9 @@ func spawn(plugin string) (*exec.Cmd, error) {
 		if err := requireGo(); err != nil {
 			return nil, err
 		}
-		return exec.Command("go", "run", plugin), nil
+		cmd := exec.Command("go", "run", ".")
+		cmd.Dir = plugin
+		return cmd, nil
 	case isExecutable(plugin):
 		return exec.Command(plugin), nil
 	default:
@@ -275,7 +285,10 @@ func isLocalGoPackage(p string) bool {
 	if err := requireGo(); err != nil {
 		return false
 	}
-	return exec.Command("go", "list", abs).Run() == nil
+	cmd := exec.Command("go", "list", "-m")
+	cmd.Dir = abs
+	err = cmd.Run()
+	return err == nil
 }
 
 func isExecutable(p string) bool {
