@@ -47,6 +47,7 @@ func NewHost() *Host {
 func (h *Host) RunPlugin(
 	ctx context.Context, plugin string, pluginStderr io.Writer,
 ) error {
+	defer h.wgRun.Done()
 	cmd, err := spawn(plugin)
 	if err != nil {
 		return err
@@ -73,7 +74,6 @@ func (h *Host) RunPlugin(
 	h.cmd = cmd
 	h.closer = stdin
 	h.running.Store(true)
-	h.wgRun.Done()
 	return h.run(ctx)
 }
 
