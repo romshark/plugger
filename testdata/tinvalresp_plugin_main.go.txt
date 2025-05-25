@@ -1,0 +1,28 @@
+package main
+
+import (
+	"fmt"
+	"context"
+	"os"
+
+	"github.com/romshark/plugger"
+)
+
+type AddReq struct {
+	A int `json:"a"`
+	B int `json:"b"`
+}
+
+type MalformedResponse struct {
+	SumNum string `json:"sum"` // Host expects int
+}
+
+func main() {
+	p := plugger.NewPlugin()
+	plugger.Handle(p, "malformed_response",
+		func(_ context.Context, _ AddReq) (MalformedResponse, error) {
+			return MalformedResponse{SumNum: "wrong"}, nil
+		})
+	fmt.Fprint(os.Stderr, "running plugin\n")
+	os.Exit(p.Run(context.Background()))
+}

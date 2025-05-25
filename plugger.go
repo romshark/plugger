@@ -87,6 +87,7 @@ func (h *Host) RunPlugin(
 }
 
 var ErrClosed = errors.New("closed")
+var ErrMalformedResponse = errors.New("malformed response")
 
 type ErrorResponse string
 
@@ -131,7 +132,7 @@ func Call[Req any, Resp any](
 			return zero, ErrorResponse(ev.Error)
 		}
 		if err := json.Unmarshal(ev.Data, &zero); err != nil {
-			return zero, fmt.Errorf("unmarshaling response data: %w", err)
+			return zero, fmt.Errorf("%w: %w", ErrMalformedResponse, err)
 		}
 		return zero, nil
 	case <-ctx.Done():

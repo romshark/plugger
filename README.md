@@ -194,7 +194,7 @@ JSON schema over stdin/stdout:
       "pattern": "^[0-9a-fA-F]+$"
     },
     "anyJson": {
-      "description": "Arbitrary JSON payload.",
+      "description": "Arbitrary JSON payload. Returning extra fields the host does not expect is allowed",
       "type": [
         "object",
         "array",

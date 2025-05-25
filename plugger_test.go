@@ -151,6 +151,20 @@ func TestCancelRequest(t *testing.T) {
 	}
 }
 
+func TestMalformedResponse(t *testing.T) {
+	h, _ := launchLocalModule(t, t.Context(), "test_malformed_response",
+		"testdata/tinvalresp_plugin_main.go.txt")
+
+	_, err := plugger.Call[AddReq, AddResp](
+		t.Context(), h, "malformed_response", AddReq{A: 1, B: 1},
+	)
+	const expectErrMsg = "malformed response: json: " +
+		"cannot unmarshal string into Go struct field AddResp.sum of type int"
+	if !errors.Is(err, plugger.ErrMalformedResponse) || err.Error() != expectErrMsg {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 type AddReq struct {
 	A int `json:"a"`
 	B int `json:"b"`
