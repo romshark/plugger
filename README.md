@@ -19,7 +19,8 @@ Features:
 - Executes remote Go modules like `github.com/someone/plugin@latest`
   (requires the go toolchain to be installed).
 - Can run arbitrary executables (shell scripts, binaries, etc.)
-  that implement its [JSON protocol](#envelope-json-schema).
+  that implement its [JSON protocol](#envelope-json-schema)
+  (see [bash example](https://github.com/romshark/plugger/blob/main/testdata/test_executable.sh)).
 - No external dependencies 🙌.
 
 ## Example
