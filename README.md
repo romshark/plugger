@@ -134,6 +134,8 @@ func main() {
 	p := plugger.NewPlugin()
 	plugger.Handle(p, "hello", // Define handler for method "hello".
 		func(ctx context.Context, req shared.Request) (shared.Response, error) {
+      // Logs must be written to stderr
+      // since stdout is reserved for host-plugin communication!
 			fmt.Fprintf(os.Stderr, "PLUG: received request: %#v\n", req)
 			if req.Question == "u okay?" {
 				time.Sleep(time.Second) // Simulate processing...
@@ -144,6 +146,7 @@ func main() {
 			}
 			return shared.Response{Answer: "this is fine"}, nil
 		})
+  // Initialization logic goes here before Run.
 	os.Exit(p.Run(context.Background()))
 }
 ```

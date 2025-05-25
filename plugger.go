@@ -190,6 +190,7 @@ type Plugin struct {
 	enc          *json.Encoder
 	dec          *json.Decoder
 	endpoints    map[string]func(context.Context, json.RawMessage) (any, error)
+	running      atomic.Bool
 	wgDispatcher sync.WaitGroup
 	lockCancel   sync.Mutex                    // protects cancel
 	cancel       map[string]context.CancelFunc // id → cancel func
@@ -205,12 +206,19 @@ func NewPlugin() *Plugin {
 	}
 }
 
-// Handle registers an RPC endpoint.
+// Handle registers an RPC endpoint overwriting any existing endpoint.
+// Must be used before Run is invoked!
+//
+// WARNING: Logs must be written to os.Stderr because os.Stdout is reserved
+// for host-plugin communication!
 func Handle[Req any, Resp any](
 	p *Plugin,
 	name string,
 	fn func(context.Context, Req) (Resp, error),
 ) {
+	if p.running.Load() {
+		panic("add handlers before invoking Run")
+	}
 	p.endpoints[name] = func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var req Req
 		if err := json.Unmarshal(raw, &req); err != nil {
@@ -223,7 +231,10 @@ func Handle[Req any, Resp any](
 
 // Run blocks handling requests until stdin closes or ctx is done.
 // Return value is suitable for os.Exit().
-func (p *Plugin) Run(ctx context.Context) int {
+func (p *Plugin) Run(ctx context.Context) (osReturnCode int) {
+	if wasRunning := p.running.Swap(true); wasRunning {
+		panic("plugin is already running")
+	}
 	for {
 		if ctx.Err() != nil {
 			// Run canceled.
