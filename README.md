@@ -26,8 +26,6 @@ Features:
 
 ## Example
 
-**cmd/host/main.go**
-
 ```sh
 $ go run ./cmd/host -p "./cmd/plugin"
 PLUG: received request: shared.Request{Question:"u okay?"}
@@ -43,6 +41,8 @@ If the plugin is hosted on GitHub you can run it as:
 ```sh
 go run ./cmd/host -p github.com/your/plugin@latest
 ```
+
+**cmd/host/main.go**
 
 ```go
 package main
