@@ -1,0 +1,36 @@
+package main
+
+import (
+	"fmt"
+	"context"
+	"os"
+	"time"
+
+	"github.com/romshark/plugger"
+)
+
+type AddReq struct {
+	A int `json:"a"`
+	B int `json:"b"`
+}
+
+type AddResp struct {
+	Sum int `json:"sum"`
+}
+
+func main() {
+	p := plugger.NewPlugin()
+	// All stderr logs are required by and checked in the test.
+	plugger.Handle(p, "add",
+		func(ctx context.Context, r AddReq) (AddResp, error) {
+			fmt.Fprint(os.Stderr, "request received\n")
+			// Wait a bit and check whether this request was canceled.
+			time.Sleep(100 * time.Millisecond)
+			if err := ctx.Err(); err != nil {
+				fmt.Fprint(os.Stderr, "request canceled\n")
+				return AddResp{}, err
+			}
+			return AddResp{Sum: r.A + r.B}, nil
+		})
+	os.Exit(p.Run(context.Background()))
+}

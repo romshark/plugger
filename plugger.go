@@ -18,6 +18,7 @@ import (
 
 // envelope defines the JSON based wire format.
 type envelope struct {
+	Cancel string          `json:"cancel"`           // Request ID to cancel
 	ID     string          `json:"id"`               // Unique per request
 	Method string          `json:"method,omitempty"` // Request side only
 	Error  string          `json:"err,omitempty"`    // Set on error responses
@@ -45,9 +46,9 @@ func NewHost() *Host {
 
 var ErrAlreadyRunning = errors.New("plugin already running")
 
-// RunPlugin spawns / go-runs / executes a plugin binary or Go module.
+// RunPlugin executes a plugin executable or Go file/package/module.
 func (h *Host) RunPlugin(
-	ctx context.Context, plugin string, pluginStderr io.Writer,
+	ctx context.Context, plugin string, pluginStderr io.WriteCloser,
 ) error {
 	if h.running.Load() {
 		return ErrAlreadyRunning
@@ -68,6 +69,9 @@ func (h *Host) RunPlugin(
 		pluginStderr = os.Stderr
 	}
 	cmd.Stderr = pluginStderr
+	defer func() {
+		_ = pluginStderr.Close() // Signal no more logs.
+	}()
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -89,9 +93,9 @@ type ErrorResponse string
 func (e ErrorResponse) Error() string { return string(e) }
 
 // Call sends a typed request and waits for the typed response.
-func Call[Req any, Resp any](ctx context.Context, h *Host,
-	method string, req Req) (Resp, error) {
-
+func Call[Req any, Resp any](
+	ctx context.Context, h *Host, method string, req Req,
+) (Resp, error) {
 	// Wait for the plugin to start.
 	h.wgRun.Wait()
 
@@ -131,6 +135,13 @@ func Call[Req any, Resp any](ctx context.Context, h *Host,
 		}
 		return zero, nil
 	case <-ctx.Done():
+		h.mu.Lock()
+		delete(h.pending, id)
+		h.mu.Unlock()
+		// Send cancelation message.
+		if err := h.enc.Encode(envelope{Cancel: id}); err != nil {
+			return zero, err
+		}
 		return zero, ctx.Err()
 	}
 }
@@ -180,6 +191,8 @@ type Plugin struct {
 	dec          *json.Decoder
 	endpoints    map[string]func(context.Context, json.RawMessage) (any, error)
 	wgDispatcher sync.WaitGroup
+	lockCancel   sync.Mutex                    // protects cancel
+	cancel       map[string]context.CancelFunc // id → cancel func
 }
 
 // NewPlugin binds to the process’ own stdin/stdout.
@@ -188,6 +201,7 @@ func NewPlugin() *Plugin {
 		enc:       json.NewEncoder(os.Stdout),
 		dec:       json.NewDecoder(bufio.NewReader(os.Stdin)),
 		endpoints: map[string]func(context.Context, json.RawMessage) (any, error){},
+		cancel:    make(map[string]context.CancelFunc),
 	}
 }
 
@@ -197,7 +211,6 @@ func Handle[Req any, Resp any](
 	name string,
 	fn func(context.Context, Req) (Resp, error),
 ) {
-
 	p.endpoints[name] = func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var req Req
 		if err := json.Unmarshal(raw, &req); err != nil {
@@ -213,29 +226,66 @@ func Handle[Req any, Resp any](
 func (p *Plugin) Run(ctx context.Context) int {
 	for {
 		if ctx.Err() != nil {
+			// Run canceled.
 			return 0
 		}
-		var ev envelope
-		if err := p.dec.Decode(&ev); err != nil {
+		var e envelope
+		if err := p.dec.Decode(&e); err != nil {
 			// stdin closed – clean exit
 			return 0
 		}
-		go p.dispatch(ctx, ev)
+
+		switch {
+		case e.Cancel != "":
+			// Cancelation message received.
+			p.lockCancel.Lock()
+			if cancelFn, ok := p.cancel[e.Cancel]; ok {
+				cancelFn() // Abort the worker goroutine.
+				delete(p.cancel, e.Cancel)
+			}
+			p.lockCancel.Unlock()
+			continue // No reply for cancel.
+		case e.ID == "":
+			panic(`protocol violation: both "id" and "cancel" empty`)
+		}
+
+		ctxCancelable, cancelFn := context.WithCancel(ctx)
+
+		p.lockCancel.Lock()
+		p.cancel[e.ID] = cancelFn
+		p.lockCancel.Unlock()
+
+		p.wgDispatcher.Add(1)
+		go p.dispatch(ctxCancelable, e)
 	}
 }
 
 func (p *Plugin) dispatch(ctx context.Context, ev envelope) {
-	p.wgDispatcher.Add(1)
-	defer p.wgDispatcher.Done()
+	// Register cancelation function.
+	ctx, cancelFn := context.WithCancel(ctx)
+
+	p.lockCancel.Lock()
+	p.cancel[ev.ID] = cancelFn
+	p.lockCancel.Unlock()
+
+	defer func() {
+		// Clean up cancelation function and release dispatcher slot.
+		p.lockCancel.Lock()
+		delete(p.cancel, ev.ID)
+		p.lockCancel.Unlock()
+		cancelFn()
+		p.wgDispatcher.Done()
+	}()
 
 	fn := p.endpoints[ev.Method]
 
-	var out envelope
-	out.ID = ev.ID
+	out := envelope{ID: ev.ID}
 
 	if fn == nil {
 		out.Error = "unknown method: " + ev.Method
-		_ = p.enc.Encode(out)
+		if err := p.enc.Encode(out); err != nil {
+			panic(fmt.Errorf("encoding unknown method response: %w", err))
+		}
 		return
 	}
 	data, err := fn(ctx, ev.Data)
@@ -244,7 +294,9 @@ func (p *Plugin) dispatch(ctx context.Context, ev envelope) {
 	} else if data != nil {
 		out.Data, _ = json.Marshal(data)
 	}
-	_ = p.enc.Encode(out)
+	if err := p.enc.Encode(out); err != nil {
+		panic(fmt.Errorf("encoding response: %w", err))
+	}
 }
 
 var reModule = regexp.MustCompile(`^[\w.\-]+(\.[\w.\-]+)+/[\w.\-/]+(@[\w.\-]+)?$`)

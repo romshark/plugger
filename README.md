@@ -11,9 +11,15 @@
 # plugger (EXPERIMENTAL)
 
 This is an experimental Go package for creating async JSON via OS pipe based plugins.
-Create a host, run a Go package (will use run `go run` internally) or a Go module
-(like `github.com/someone/plugin@latest`) or an arbitrary executable file and use `Call`
-to query it via stdin/stdout.
+
+Features:
+- Implements asynchronous request-response topology with cancelable requests (multiplex).
+- Uses standard OS pipes (stdout/stderr/stdin), no networking involved.
+- Executes local Go packages (requires the go toolchain to be installed).
+- Executes remote Go modules like `github.com/someone/plugin@latest`
+  (requires the go toolchain to be installed).
+- Can run arbitrary executables (shell scripts, binaries, etc.)
+  that implement its [JSON protocol](#envelope-json-schema).
 
 ## Example
 
@@ -126,11 +132,14 @@ import (
 
 func main() {
 	p := plugger.NewPlugin()
-	plugger.Handle(p, "hello",
+	plugger.Handle(p, "hello", // Define handler for method "hello".
 		func(ctx context.Context, req shared.Request) (shared.Response, error) {
 			fmt.Fprintf(os.Stderr, "PLUG: received request: %#v\n", req)
 			if req.Question == "u okay?" {
-				time.Sleep(1 * time.Second)
+				time.Sleep(time.Second) // Simulate processing...
+        if err := ctx.Err(); err != nil {
+          return shared.Response{}, err // Request was canceled by host.
+        }
 				return shared.Response{Answer: "yeah, I'm fine!"}, nil
 			}
 			return shared.Response{Answer: "this is fine"}, nil
@@ -170,6 +179,9 @@ JSON schema over stdin/stdout:
     },
     {
       "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/cancel"
     }
   ],
   "$defs": {
@@ -206,7 +218,8 @@ JSON schema over stdin/stdout:
         "data": {
           "$ref": "#/$defs/anyJson"
         },
-        "err": false
+        "err": false,
+        "cancel": false
       },
       "additionalProperties": false
     },
@@ -225,7 +238,8 @@ JSON schema over stdin/stdout:
         "data": {
           "$ref": "#/$defs/anyJson"
         },
-        "method": false
+        "method": false,
+        "cancel": false
       },
       "additionalProperties": false,
       "allOf": [
@@ -244,6 +258,23 @@ JSON schema over stdin/stdout:
           }
         }
       ]
+    },
+    "cancel": {
+      "type": "object",
+      "required": [
+        "cancel"
+      ],
+      "properties": {
+        "cancel": {
+          "$ref": "#/$defs/id"
+        },
+        "id": false,
+        "method": false,
+        "err": false,
+        "data": false
+      },
+      "additionalProperties": false,
+      "description": "Cancellation message; asks the plugin to abort processing of the request whose id equals `cancel`."
     }
   }
 }

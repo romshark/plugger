@@ -1,6 +1,7 @@
 package plugger_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/romshark/plugger"
@@ -29,59 +31,46 @@ func readFile(t *testing.T, name string) string {
 	return string(c)
 }
 
-type testLogWriter struct{ t *testing.T }
+type logWriter struct {
+	t         *testing.T
+	lock      sync.Mutex
+	listeners []chan<- string
+}
 
-func (w testLogWriter) Write(data []byte) (int, error) {
-	w.t.Log(string(data))
-	return len(data), nil
+var _ io.WriteCloser = new(logWriter)
+
+func newLogWriter(t *testing.T) *logWriter { return &logWriter{t: t} }
+
+func (w *logWriter) AddReader(c chan<- string) {
+	w.lock.Lock()
+	w.listeners = append(w.listeners, c)
+	w.lock.Unlock()
+}
+
+func (w *logWriter) Write(b []byte) (int, error) {
+	w.lock.Lock()
+	m := string(b)
+	for _, l := range w.listeners {
+		l <- m
+	}
+	w.t.Log(m)
+	w.lock.Unlock()
+	return len(b), nil
+}
+
+func (w *logWriter) Close() error {
+	w.lock.Lock()
+	for _, l := range w.listeners {
+		close(l)
+	}
+	w.lock.Unlock()
+	return nil
 }
 
 func TestCallLocalGoPackage(t *testing.T) {
-	// Absolute path to the plugger source directory (this package).
-	_, thisFile, _, _ := runtime.Caller(0)
-	pluggerDir := filepath.Dir(thisFile)
-
-	// Create a tiny plugin module in temp dir.
-	modDir := filepath.Join(t.TempDir(), "t1_module")
-	t.Logf("mod-dir: %s", modDir)
-	if err := os.MkdirAll(modDir, 0o777); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(modDir); err != nil {
-			t.Errorf("cleaning up mod dir: %v", err)
-		}
-	})
-
-	// go.mod with replace lets the plugin import local "plugger"
-	writeFile(t, filepath.Join(modDir, "go.mod"), fmt.Sprintf(`
-		module exampleplugin
-		go 1.24
-
-		require github.com/romshark/plugger v0.0.0
-		replace github.com/romshark/plugger => %s
-	`, pluggerDir))
-
-	// plugin main.go
-	writeFile(t, filepath.Join(modDir, "main.go"),
-		readFile(t, "testdata/t1_plugin_main.go.txt"))
-
-	// Launch host and plugin.
-	ctx := t.Context()
-	h := plugger.NewHost()
-	go func() {
-		err := h.RunPlugin(ctx, modDir, testLogWriter{t: t})
-		if err != nil && !errors.Is(err, io.EOF) {
-			t.Errorf("RunPlugin error: %v", err)
-		}
-	}()
-
+	h, _ := launchLocalModule(t, t.Context(), "test_happy",
+		"testdata/t1_plugin_main.go.txt")
 	testPlugin(t, h)
-
-	// Cleanup.
-	if err := h.Close(); err != nil {
-		t.Fatalf("closing host: %v", err)
-	}
 }
 
 func TestCallLocalGoFile(t *testing.T) {
@@ -105,7 +94,7 @@ func TestCallLocalGoFile(t *testing.T) {
 	ctx := t.Context()
 	h := plugger.NewHost()
 	go func() {
-		err := h.RunPlugin(ctx, mainFile, testLogWriter{t: t})
+		err := h.RunPlugin(ctx, mainFile, newLogWriter(t))
 		if err != nil && !errors.Is(err, io.EOF) {
 			t.Errorf("RunPlugin error: %v", err)
 		}
@@ -124,7 +113,7 @@ func TestCallBashScriptExecutable(t *testing.T) {
 	ctx := t.Context()
 	h := plugger.NewHost()
 	go func() {
-		err := h.RunPlugin(ctx, "testdata/test_executable.sh", testLogWriter{t: t})
+		err := h.RunPlugin(ctx, "testdata/test_executable.sh", newLogWriter(t))
 		if err != nil && !errors.Is(err, io.EOF) {
 			t.Errorf("RunPlugin error: %v", err)
 		}
@@ -138,15 +127,46 @@ func TestCallBashScriptExecutable(t *testing.T) {
 	}
 }
 
+func TestCancelRequest(t *testing.T) {
+	h, logWriter := launchLocalModule(t, t.Context(), "test_cancel",
+		"testdata/tcancel_plugin_main.go.txt")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // Cancel the call immediately.
+	_, err := plugger.Call[AddReq, AddResp](
+		ctx, h, "add", AddReq{A: 1, B: 1},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected err context.Canceled; received: %v", err)
+	}
+
+	c := make(chan string, 2)
+	logWriter.AddReader(c)
+
+	if m := <-c; m != "request received\n" {
+		t.Fatalf("unexpected log: %q", m)
+	}
+	if m := <-c; m != "request canceled\n" {
+		t.Fatalf("unexpected log: %q", m)
+	}
+}
+
+type AddReq struct {
+	A int `json:"a"`
+	B int `json:"b"`
+}
+
+type AddResp struct {
+	Sum int `json:"sum"`
+}
+
+type MalformedReq struct {
+	A string `json:"a"`
+	B int    `json:"b"`
+}
+
 func testPlugin(t *testing.T, h *plugger.Host) {
 	// Happy path.
-	type AddReq struct {
-		A int `json:"a"`
-		B int `json:"b"`
-	}
-	type AddResp struct {
-		Sum int `json:"sum"`
-	}
 
 	got, err := plugger.Call[AddReq, AddResp](
 		t.Context(), h, "add", AddReq{A: 2, B: 3},
@@ -170,11 +190,6 @@ func testPlugin(t *testing.T, h *plugger.Host) {
 	}
 
 	// Malformed payload (string where an int is expected).
-	type MalformedReq struct {
-		A string `json:"a"`
-		B int    `json:"b"`
-	}
-
 	_, err = plugger.Call[MalformedReq, AddResp](
 		t.Context(), h, "add", MalformedReq{A: "2", B: 3},
 	)
@@ -191,4 +206,56 @@ func TestMain(m *testing.M) {
 		panic("go toolchain required for plugger tests")
 	}
 	os.Exit(m.Run())
+}
+
+func launchLocalModule(
+	t *testing.T, ctx context.Context, testDirName, mainFilePath string,
+) (*plugger.Host, *logWriter) {
+	// Absolute path to the plugger source directory (this package).
+	_, thisFile, _, _ := runtime.Caller(0)
+	pluggerDir := filepath.Dir(thisFile)
+
+	// Create a tiny plugin module in temp dir.
+	modDir := filepath.Join(t.TempDir(), testDirName)
+	t.Logf("mod-dir: %s", modDir)
+	if err := os.MkdirAll(modDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(modDir); err != nil {
+			t.Errorf("cleaning up mod dir: %v", err)
+		}
+	})
+
+	// go.mod with replace lets the plugin import local "plugger"
+	writeFile(t, filepath.Join(modDir, "go.mod"), fmt.Sprintf(`
+		module exampleplugin
+		go 1.24
+
+		require github.com/romshark/plugger v0.0.0
+		replace github.com/romshark/plugger => %s
+	`, pluggerDir))
+
+	// plugin main.go
+	mainFileContents := readFile(t, mainFilePath)
+	writeFile(t, filepath.Join(modDir, "main.go"), mainFileContents)
+
+	// Launch host and plugin.
+	h := plugger.NewHost()
+	logWriter := newLogWriter(t)
+	go func() {
+		err := h.RunPlugin(ctx, modDir, logWriter)
+		if err != nil && !errors.Is(err, io.EOF) {
+			t.Errorf("RunPlugin error: %v", err)
+		}
+	}()
+
+	t.Cleanup(func() {
+		// Cleanup.
+		if err := h.Close(); err != nil {
+			t.Fatalf("closing host: %v", err)
+		}
+	})
+
+	return h, logWriter
 }
