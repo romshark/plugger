@@ -166,8 +166,7 @@ type MalformedReq struct {
 }
 
 func testPlugin(t *testing.T, h *plugger.Host) {
-	// Happy path.
-
+	// "add" method.
 	got, err := plugger.Call[AddReq, AddResp](
 		t.Context(), h, "add", AddReq{A: 2, B: 3},
 	)
@@ -176,6 +175,14 @@ func testPlugin(t *testing.T, h *plugger.Host) {
 	}
 	if got.Sum != 5 {
 		t.Fatalf("unexpected result: %d", got.Sum)
+	}
+
+	// "simulated_error" method.
+	_, err = plugger.Call[struct{}, struct{}](
+		t.Context(), h, "simulated_error", struct{}{},
+	)
+	if err == nil || err.Error() != "simulated error" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Unknown method.

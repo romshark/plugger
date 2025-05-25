@@ -23,6 +23,10 @@ func main() {
 		func(_ context.Context, r AddReq) (AddResp, error) {
 			return AddResp{Sum: r.A + r.B}, nil
 		})
+	plugger.Handle(p, "simulated_error",
+		func(_ context.Context, _ struct{}) (noData struct{}, err error) {
+			return noData, fmt.Errorf("simulated error")
+		})
 	fmt.Fprint(os.Stderr, "running plugin\n")
 	os.Exit(p.Run(context.Background()))
 }
