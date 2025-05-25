@@ -80,7 +80,6 @@ func main() {
 	}()
 
 	// Send three async requests
-	// The third request is intentionally targeting an inexistent endpoint.
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { // This request will take 1s to process.
