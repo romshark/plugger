@@ -119,6 +119,25 @@ func TestCallLocalGoFile(t *testing.T) {
 	}
 }
 
+func TestCallBashScriptExecutable(t *testing.T) {
+	// Launch host and plugin.
+	ctx := t.Context()
+	h := plugger.NewHost()
+	go func() {
+		err := h.RunPlugin(ctx, "testdata/test_executable.sh", testLogWriter{t: t})
+		if err != nil && !errors.Is(err, io.EOF) {
+			t.Errorf("RunPlugin error: %v", err)
+		}
+	}()
+
+	testPlugin(t, h)
+
+	// Cleanup.
+	if err := h.Close(); err != nil {
+		t.Fatalf("closing host: %v", err)
+	}
+}
+
 func testPlugin(t *testing.T, h *plugger.Host) {
 	// Happy path.
 	type AddReq struct {

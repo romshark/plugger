@@ -14,6 +14,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # jq is required by testdata/test_executable.sh
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       # Test
       - name: Run tests with coverage
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
