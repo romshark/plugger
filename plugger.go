@@ -94,6 +94,8 @@ type ErrorResponse string
 func (e ErrorResponse) Error() string { return string(e) }
 
 // Call sends a typed request and waits for the typed response.
+// Returns ErrMalformedResponse if plugin returns a malformed JSON response.
+// Returns ErrClosed if the plugin is closed.
 func Call[Req any, Resp any](
 	ctx context.Context, h *Host, method string, req Req,
 ) (Resp, error) {
@@ -148,6 +150,7 @@ func Call[Req any, Resp any](
 }
 
 // Close closes stdin (signals EOF) and waits for plugin exit.
+// No-op if already closed.
 func (h *Host) Close() error {
 	wasRunning := h.running.Swap(false)
 	if !wasRunning {
