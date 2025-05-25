@@ -256,6 +256,12 @@ func spawn(plugin string) (*exec.Cmd, error) {
 			return nil, err
 		}
 		return exec.Command("go", "run", plugin), nil
+	case isGoFile(plugin):
+		if err := requireGo(); err != nil {
+			return nil, err
+		}
+		cmd := exec.Command("go", "run", plugin)
+		return cmd, nil
 	case isLocalGoPackage(plugin):
 		if err := requireGo(); err != nil {
 			return nil, err
@@ -270,6 +276,18 @@ func spawn(plugin string) (*exec.Cmd, error) {
 	}
 }
 
+func isGoFile(p string) bool {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir() && filepath.Ext(abs) == ".go"
+}
+
 func isLocalGoPackage(p string) bool {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -279,10 +297,7 @@ func isLocalGoPackage(p string) bool {
 	if err != nil {
 		return false
 	}
-	if !info.IsDir() && filepath.Ext(abs) == ".go" {
-		return true
-	}
-	if err := requireGo(); err != nil {
+	if !info.IsDir() {
 		return false
 	}
 	cmd := exec.Command("go", "list", "-m")
