@@ -45,6 +45,7 @@ func NewHost() *Host {
 }
 
 var (
+	ErrInvalidPluginPath   = errors.New("invalid plugin path")
 	ErrAlreadyRunning      = errors.New("plugin already running")
 	ErrGoToolchainNotFound = errors.New("go toolchain not in PATH")
 	ErrClosed              = errors.New("closed")
@@ -342,7 +343,7 @@ func spawn(plugin string) (*exec.Cmd, error) {
 	case isExecutable(plugin):
 		return exec.Command(plugin), nil
 	default:
-		return nil, errors.New("invalid plugin path")
+		return nil, ErrInvalidPluginPath
 	}
 }
 
