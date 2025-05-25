@@ -20,6 +20,7 @@ Features:
   (requires the go toolchain to be installed).
 - Can run arbitrary executables (shell scripts, binaries, etc.)
   that implement its [JSON protocol](#envelope-json-schema).
+- No external dependencies 🙌.
 
 ## Example
 
