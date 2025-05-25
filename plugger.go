@@ -44,7 +44,17 @@ func NewHost() *Host {
 	return h
 }
 
-var ErrAlreadyRunning = errors.New("plugin already running")
+var (
+	ErrAlreadyRunning      = errors.New("plugin already running")
+	ErrGoToolchainNotFound = errors.New("go toolchain not in PATH")
+	ErrClosed              = errors.New("closed")
+	ErrMalformedResponse   = errors.New("malformed response")
+)
+
+// ErrorResponse is a copy of the "err" field in the plugin response JSON.
+type ErrorResponse string
+
+func (e ErrorResponse) Error() string { return string(e) }
 
 // RunPlugin executes a plugin executable or Go file/package/module.
 func (h *Host) RunPlugin(
@@ -85,13 +95,6 @@ func (h *Host) RunPlugin(
 	h.wgRun.Done()
 	return h.run(ctx)
 }
-
-var ErrClosed = errors.New("closed")
-var ErrMalformedResponse = errors.New("malformed response")
-
-type ErrorResponse string
-
-func (e ErrorResponse) Error() string { return string(e) }
 
 // Call sends a typed request and waits for the typed response.
 // Returns ErrMalformedResponse if plugin returns a malformed JSON response.
@@ -391,7 +394,7 @@ func isExecutable(p string) bool {
 
 func requireGo() error {
 	if _, err := exec.LookPath("go"); err != nil {
-		return errors.New("go toolchain not in PATH")
+		return ErrGoToolchainNotFound
 	}
 	return nil
 }
