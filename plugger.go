@@ -173,15 +173,10 @@ func (h *Host) Close() error {
 }
 
 func (h *Host) run(ctx context.Context) error {
+	defer h.closePending()
 	for {
 		var ev envelope
 		if err := h.dec.Decode(&ev); err != nil {
-			// broadcast EOF to waiters
-			h.mu.Lock()
-			for _, ch := range h.pending {
-				close(ch)
-			}
-			h.mu.Unlock()
 			return err
 		}
 		h.mu.Lock()
@@ -194,6 +189,14 @@ func (h *Host) run(ctx context.Context) error {
 				return ctx.Err()
 			}
 		}
+	}
+}
+
+func (h *Host) closePending() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ch := range h.pending {
+		close(ch)
 	}
 }
 
