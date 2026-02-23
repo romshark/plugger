@@ -270,19 +270,18 @@ func (p *Plugin) Run(ctx context.Context) (osReturnCode int) {
 			panic(`protocol violation: both "id" and "cancel" empty`)
 		}
 
+		ctxReq, cancelFn := context.WithCancel(ctx)
+
+		p.lockCancel.Lock()
+		p.cancel[e.ID] = cancelFn
+		p.lockCancel.Unlock()
+
 		p.wgDispatcher.Add(1)
-		go p.dispatch(ctx, e)
+		go p.dispatch(ctxReq, cancelFn, e)
 	}
 }
 
-func (p *Plugin) dispatch(ctx context.Context, ev envelope) {
-	// Register cancelation function.
-	ctx, cancelFn := context.WithCancel(ctx)
-
-	p.lockCancel.Lock()
-	p.cancel[ev.ID] = cancelFn
-	p.lockCancel.Unlock()
-
+func (p *Plugin) dispatch(ctx context.Context, cancelFn context.CancelFunc, ev envelope) {
 	defer func() {
 		// Clean up cancelation function and release dispatcher slot.
 		p.lockCancel.Lock()
