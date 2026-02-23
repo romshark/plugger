@@ -32,14 +32,18 @@ type Host struct {
 	enc       *json.Encoder
 	dec       *json.Decoder
 	cmd       *exec.Cmd
-	closer    io.Closer  // plugin stdin
-	mu        sync.Mutex // protects pending and enc
+	closer    io.Closer     // plugin stdin
+	done      chan struct{} // closed when run() returns
+	lock      sync.Mutex    // protects pending and enc
 	pending   map[string]chan envelope
 }
 
 // NewHost creates an empty host. Call RunPlugin afterwards.
 func NewHost() *Host {
-	h := &Host{pending: map[string]chan envelope{}}
+	h := &Host{
+		pending: map[string]chan envelope{},
+		done:    make(chan struct{}),
+	}
 	h.wgRun.Add(1)
 	return h
 }
@@ -66,6 +70,7 @@ func (h *Host) RunPlugin(
 	}
 	unblock := sync.OnceFunc(h.wgRun.Done)
 	defer unblock()
+	defer close(h.done)
 	cmd, err := spawn(plugin)
 	if err != nil {
 		return err
@@ -121,19 +126,19 @@ func Call[Req any, Resp any](
 	}
 
 	wait := make(chan envelope, 1)
-	h.mu.Lock()
+	h.lock.Lock()
 	h.pending[id] = wait
 	err = h.enc.Encode(envelope{ID: id, Method: method, Data: raw})
-	h.mu.Unlock()
+	h.lock.Unlock()
 	if err != nil {
 		return zero, err
 	}
 
 	select {
 	case ev, ok := <-wait:
-		h.mu.Lock()
+		h.lock.Lock()
 		delete(h.pending, id)
-		h.mu.Unlock()
+		h.lock.Unlock()
 		if !ok {
 			return zero, ErrClosed
 		}
@@ -145,10 +150,10 @@ func Call[Req any, Resp any](
 		}
 		return zero, nil
 	case <-ctx.Done():
-		h.mu.Lock()
+		h.lock.Lock()
 		delete(h.pending, id)
 		err := h.enc.Encode(envelope{Cancel: id})
-		h.mu.Unlock()
+		h.lock.Unlock()
 		if err != nil {
 			return zero, err
 		}
@@ -166,6 +171,7 @@ func (h *Host) Close() error {
 	if h.closer != nil {
 		_ = h.closer.Close()
 	}
+	<-h.done // Wait for run() to finish reading stdout.
 	if h.cmd != nil {
 		return h.cmd.Wait()
 	}
@@ -179,9 +185,9 @@ func (h *Host) run(ctx context.Context) error {
 		if err := h.dec.Decode(&ev); err != nil {
 			return err
 		}
-		h.mu.Lock()
+		h.lock.Lock()
 		ch := h.pending[ev.ID]
-		h.mu.Unlock()
+		h.lock.Unlock()
 		if ch != nil {
 			select {
 			case ch <- ev:
@@ -193,8 +199,8 @@ func (h *Host) run(ctx context.Context) error {
 }
 
 func (h *Host) closePending() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.lock.Lock()
+	defer h.lock.Unlock()
 	for _, ch := range h.pending {
 		close(ch)
 	}
