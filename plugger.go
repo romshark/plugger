@@ -18,8 +18,8 @@ import (
 
 // envelope defines the JSON based wire format.
 type envelope struct {
-	Cancel string          `json:"cancel"`           // Request ID to cancel
-	ID     string          `json:"id"`               // Unique per request
+	Cancel string          `json:"cancel,omitempty"` // Request ID to cancel
+	ID     string          `json:"id,omitempty"`     // Unique per request
 	Method string          `json:"method,omitempty"` // Request side only
 	Error  string          `json:"err,omitempty"`    // Set on error responses
 	Data   json.RawMessage `json:"data,omitempty"`   // Payload
@@ -32,8 +32,8 @@ type Host struct {
 	enc       *json.Encoder
 	dec       *json.Decoder
 	cmd       *exec.Cmd
-	closer    io.Closer // plugin stdin
-	mu        sync.Mutex             // protects pending and enc
+	closer    io.Closer  // plugin stdin
+	mu        sync.Mutex // protects pending and enc
 	pending   map[string]chan envelope
 }
 
