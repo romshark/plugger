@@ -269,14 +269,8 @@ func (p *Plugin) Run(ctx context.Context) (osReturnCode int) {
 			panic(`protocol violation: both "id" and "cancel" empty`)
 		}
 
-		ctxCancelable, cancelFn := context.WithCancel(ctx)
-
-		p.lockCancel.Lock()
-		p.cancel[e.ID] = cancelFn
-		p.lockCancel.Unlock()
-
 		p.wgDispatcher.Add(1)
-		go p.dispatch(ctxCancelable, e)
+		go p.dispatch(ctx, e)
 	}
 }
 
