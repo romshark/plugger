@@ -200,6 +200,7 @@ type Plugin struct {
 	endpoints    map[string]func(context.Context, json.RawMessage) (any, error)
 	running      atomic.Bool
 	wgDispatcher sync.WaitGroup
+	lockEnc      sync.Mutex                    // protects enc
 	lockCancel   sync.Mutex                    // protects cancel
 	cancel       map[string]context.CancelFunc // id → cancel func
 }
@@ -302,7 +303,10 @@ func (p *Plugin) dispatch(ctx context.Context, ev envelope) {
 
 	if fn == nil {
 		out.Error = "unknown method: " + ev.Method
-		if err := p.enc.Encode(out); err != nil {
+		p.lockEnc.Lock()
+		err := p.enc.Encode(out)
+		p.lockEnc.Unlock()
+		if err != nil {
 			panic(fmt.Errorf("encoding unknown method response: %w", err))
 		}
 		return
@@ -313,7 +317,10 @@ func (p *Plugin) dispatch(ctx context.Context, ev envelope) {
 	} else if data != nil {
 		out.Data, _ = json.Marshal(data)
 	}
-	if err := p.enc.Encode(out); err != nil {
+	p.lockEnc.Lock()
+	err = p.enc.Encode(out)
+	p.lockEnc.Unlock()
+	if err != nil {
 		panic(fmt.Errorf("encoding response: %w", err))
 	}
 }
