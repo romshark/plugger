@@ -76,13 +76,14 @@ func (h *Host) RunPlugin(
 	if err != nil {
 		return fmt.Errorf("getting stdout pipe: %w", err)
 	}
-	if pluginStderr == nil {
-		pluginStderr = os.Stderr
+	if pluginStderr != nil {
+		cmd.Stderr = pluginStderr
+		defer func() {
+			_ = pluginStderr.Close() // Signal no more logs.
+		}()
+	} else {
+		cmd.Stderr = os.Stderr
 	}
-	cmd.Stderr = pluginStderr
-	defer func() {
-		_ = pluginStderr.Close() // Signal no more logs.
-	}()
 
 	if err := cmd.Start(); err != nil {
 		return err
