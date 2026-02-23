@@ -64,6 +64,8 @@ func (h *Host) RunPlugin(
 	if h.running.Load() {
 		return ErrAlreadyRunning
 	}
+	unblock := sync.OnceFunc(h.wgRun.Done)
+	defer unblock()
 	cmd, err := spawn(plugin)
 	if err != nil {
 		return err
@@ -94,7 +96,7 @@ func (h *Host) RunPlugin(
 	h.cmd = cmd
 	h.closer = stdin
 	h.running.Store(true)
-	h.wgRun.Done()
+	unblock() // Signal Call waiters that the plugin is ready.
 	return h.run(ctx)
 }
 
