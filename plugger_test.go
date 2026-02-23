@@ -78,11 +78,6 @@ func TestCallLocalGoFile(t *testing.T) {
 	if err := os.MkdirAll(pkgDir, 0o777); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(pkgDir); err != nil {
-			t.Errorf("cleaning up mod dir: %v", err)
-		}
-	})
 
 	// plugin main.go
 	mainFile := filepath.Join(pkgDir, "main.go")
@@ -131,9 +126,6 @@ func TestCancelRequest(t *testing.T) {
 	h, logWriter := launchLocalModule(t, t.Context(), "test_cancel",
 		"testdata/tcancel_plugin_main.go.txt")
 
-	c := make(chan string, 2)
-	logWriter.AddReader(c)
-
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel the call immediately.
 	_, err := plugger.Call[AddReq, AddResp](
@@ -142,6 +134,9 @@ func TestCancelRequest(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected err context.Canceled; received: %v", err)
 	}
+
+	c := make(chan string, 2)
+	logWriter.AddReader(c)
 
 	if m := <-c; m != "request received\n" {
 		t.Fatalf("unexpected log: %q", m)
@@ -242,11 +237,6 @@ func launchLocalModule(
 	if err := os.MkdirAll(modDir, 0o777); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(modDir); err != nil {
-			t.Errorf("cleaning up mod dir: %v", err)
-		}
-	})
 
 	// go.mod with replace lets the plugin import local "plugger"
 	writeFile(t, filepath.Join(modDir, "go.mod"), fmt.Sprintf(`
