@@ -6,13 +6,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Go 1.24.5
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.5"
-          check-latest: true
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.0"
+          cache: true
+      - name: Run go vet
+        run: go vet ./...
 
       # jq is required by testdata/test_executable.sh
       - name: Install jq
@@ -21,11 +23,11 @@ jobs:
           sudo apt-get install -y jq
 
       # Test
-      - name: Run tests with coverage
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
-
-      - name: Upload coverage to Coveralls
+      - name: Test with coverage
+        run: go test -v -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Coveralls
         uses: coverallsapp/github-action@v2.3.6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.github_token }}
           file: coverage.out
+          format: golang
