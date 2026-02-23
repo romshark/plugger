@@ -33,7 +33,7 @@ type Host struct {
 	dec       *json.Decoder
 	cmd       *exec.Cmd
 	closer    io.Closer // plugin stdin
-	mu        sync.Mutex
+	mu        sync.Mutex             // protects pending and enc
 	pending   map[string]chan envelope
 }
 
@@ -120,9 +120,9 @@ func Call[Req any, Resp any](
 	wait := make(chan envelope, 1)
 	h.mu.Lock()
 	h.pending[id] = wait
+	err = h.enc.Encode(envelope{ID: id, Method: method, Data: raw})
 	h.mu.Unlock()
-
-	if err := h.enc.Encode(envelope{ID: id, Method: method, Data: raw}); err != nil {
+	if err != nil {
 		return zero, err
 	}
 
@@ -144,9 +144,9 @@ func Call[Req any, Resp any](
 	case <-ctx.Done():
 		h.mu.Lock()
 		delete(h.pending, id)
+		err := h.enc.Encode(envelope{Cancel: id})
 		h.mu.Unlock()
-		// Send cancelation message.
-		if err := h.enc.Encode(envelope{Cancel: id}); err != nil {
+		if err != nil {
 			return zero, err
 		}
 		return zero, ctx.Err()
