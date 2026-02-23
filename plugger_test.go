@@ -131,6 +131,9 @@ func TestCancelRequest(t *testing.T) {
 	h, logWriter := launchLocalModule(t, t.Context(), "test_cancel",
 		"testdata/tcancel_plugin_main.go.txt")
 
+	c := make(chan string, 2)
+	logWriter.AddReader(c)
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel the call immediately.
 	_, err := plugger.Call[AddReq, AddResp](
@@ -139,9 +142,6 @@ func TestCancelRequest(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected err context.Canceled; received: %v", err)
 	}
-
-	c := make(chan string, 2)
-	logWriter.AddReader(c)
 
 	if m := <-c; m != "request received\n" {
 		t.Fatalf("unexpected log: %q", m)
