@@ -251,7 +251,7 @@ func launchLocalModule(
 	// go.mod with replace lets the plugin import local "plugger"
 	writeFile(t, filepath.Join(modDir, "go.mod"), fmt.Sprintf(`
 		module exampleplugin
-		go 1.24
+		go 1.25
 
 		require github.com/romshark/plugger v0.0.0
 		replace github.com/romshark/plugger => %s
